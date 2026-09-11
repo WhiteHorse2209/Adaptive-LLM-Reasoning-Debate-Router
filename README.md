@@ -59,7 +59,13 @@ The primary initial design focuses entirely on local-first LLM inference using *
 - **`src/router/models.py`**: Enums for `DifficultyLevel` (`EASY`, `UNCERTAIN`, `HARD`), `ReasoningStrategy` (`DIRECT`, `SELF_CONSISTENCY`, `MULTI_AGENT_DEBATE`), `ConfidenceAssessment`, and `RoutedResponse`.
 - **`src/router/estimator.py`**: `ConfidenceEstimator` providing single-pass difficulty classification, verbalized confidence extraction (0.0 to 1.0), and justification notes with resilient parsing and fallback heuristics.
 - **`src/router/router.py`**: `AdaptiveRouter` comparing confidence against configurable thresholds. Easy queries immediately route to `DIRECT` mode (1 call, 0 extra agents), intelligently preventing unnecessary compute.
-- **`src/main.py`**: CLI entry point supporting `--mode {adaptive, direct}` and `--format {text, json}`.
+
+### Phase 4: Self-Consistency Reasoning
+- **`src/reasoning/models.py`**: `CandidateSolution` and `SelfConsistencyResult` schemas tracking each candidate reasoning chain, sample token usage, individual latency, and overall consensus.
+- **`src/reasoning/consistency.py`**: `SelfConsistencyReasoner` executing $N$ independent generation paths with non-zero temperature ($T=0.7$), canonicalizing candidate outputs, and selecting the consensus answer via majority voting:
+  $$\text{Agreement} = \frac{\max_a \text{count}(a)}{N}$$
+- **`src/router/router.py`**: Seamlessly executes Self-Consistency for queries identified as `UNCERTAIN`, tracking all $1 + N$ calls, accumulated tokens, latency, and sample distributions.
+- **`src/main.py`**: CLI displays candidate vote distributions, agreement percentages, and individual sample solutions.
 
 ---
 
@@ -92,19 +98,15 @@ python -m pytest tests/ -v
 
 ### 4. Run Question Answering & Adaptive Routing
 
-**Adaptive Routing Mode (Default - dynamically routes based on confidence):**
+**Easy Query (Automatically routed to DIRECT - 1 model call):**
 ```bash
-python -m src.main --question "What is 25 * 4?" --profile local_fast --mode adaptive
+python -m src.main --question "What is 25 * 4?" --profile local_fast
 ```
-
-Example Output for Easy Query (Routed to DIRECT):
+Output:
 ```
 =================================================================
 QUESTION:
   What is 25 * 4?
-
-EXPLANATION:
-  To find the product of 25 and 4, we multiply these two numbers together.
 
 FINAL ANSWER:
   100
@@ -113,25 +115,41 @@ ROUTING & CONFIDENCE TELEMETRY:
   Strategy:         DIRECT
   Difficulty:       EASY
   Confidence:       1.00 (HIGH)
-  Confidence Note:  This is a basic arithmetic operation that can be solved with ease.
   Calls Made:       1
   Model:            llama3.2:latest (ollama)
-  Latency:          1.42s
-  Tokens:           205 (prompt: 136, completion: 69)
+  Tokens:           209 (prompt: 136, completion: 73)
   External Cost:    $0.0000 (Zero API Cost - Local Hardware)
 =================================================================
 ```
 
-**JSON Output Format:**
+**Uncertain Query (Automatically routed to SELF-CONSISTENCY - 1 + N calls):**
 ```bash
-python -m src.main --question "What is 25 * 4?" --profile local_fast --format json
+python -m src.main --question "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost in cents?" --profile local_fast
+```
+Output:
+```
+=================================================================
+ROUTING & CONFIDENCE TELEMETRY:
+  Strategy:         SELF_CONSISTENCY
+  Difficulty:       UNCERTAIN
+  Confidence:       0.65 (MEDIUM)
+  Calls Made:       4
+  Agreement Score:  66.7%
+  Vote Counts:      {'5 cents': 2, '10 cents': 1}
+  Candidate Samples:
+    Sample 1:       5 cents
+    Sample 2:       10 cents
+    Sample 3:       5 cents
+  Model:            llama3.2:latest (ollama)
+  External Cost:    $0.0000 (Zero API Cost - Local Hardware)
+=================================================================
 ```
 
 ---
 
 ## Configuration (`config.json`)
 
-Model profiles and router thresholds are configured independently of application code:
+Model profiles, router thresholds, and self-consistency parameters are configured independently of application code:
 ```json
 {
   "active_profile": "local_fast",
@@ -157,7 +175,8 @@ Model profiles and router thresholds are configured independently of application
     "confidence_threshold_high": 0.80,
     "confidence_threshold_low": 0.50,
     "estimation_mode": "single_pass",
-    "consistency_samples": 5
+    "consistency_samples": 3,
+    "sample_temperature": 0.7
   }
 }
 ```

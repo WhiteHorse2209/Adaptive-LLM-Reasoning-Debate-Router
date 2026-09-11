@@ -83,6 +83,7 @@ class TestAdaptiveRouter(unittest.TestCase):
     def setUp(self):
         self.mock_provider = MagicMock()
         self.mock_provider.provider_name = "ollama"
+        self.mock_provider.default_model = "llama3.2:latest"
         self.mock_provider.default_temperature = 0.1
         self.mock_provider.default_max_tokens = 500
         self.mock_provider.default_timeout = 60
@@ -141,8 +142,8 @@ class TestAdaptiveRouter(unittest.TestCase):
         self.assertEqual(result.strategy, ReasoningStrategy.SELF_CONSISTENCY)
         self.assertEqual(result.difficulty, DifficultyLevel.UNCERTAIN)
         self.assertEqual(result.confidence.score, 0.65)
-        self.assertEqual(result.call_count, 1)
-        self.assertTrue(result.metadata["needs_further_reasoning"])
+        self.assertEqual(result.call_count, 4)  # 1 estimation + 3 samples
+        self.assertIn("agreement_score", result.metadata)
 
     def test_route_hard_to_debate(self):
         mock_resp = LLMResponse(

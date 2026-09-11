@@ -114,6 +114,13 @@ def main():
             print(f"  Confidence:       {response.confidence.score:.2f} ({response.confidence.level})")
             print(f"  Confidence Note:  {response.confidence.justification}")
             print(f"  Calls Made:       {response.call_count}")
+
+            if "agreement_score" in response.metadata:
+                print(f"  Agreement Score:  {response.metadata['agreement_score'] * 100:.1f}%")
+                print(f"  Vote Counts:      {response.metadata.get('agreement_distribution', {})}")
+                print("  Candidate Samples:")
+                for idx, cand_ans in enumerate(response.metadata.get("candidate_answers", []), 1):
+                    print(f"    Sample {idx}:       {cand_ans}")
         print(f"  Model:            {response.model} ({response.provider})")
         print(f"  Latency:          {response.latency_seconds}s")
         print(
