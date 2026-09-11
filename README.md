@@ -110,6 +110,16 @@ The primary initial design focuses entirely on local-first LLM inference using *
 - **`src/ui/app.py`**: Modern Streamlit web application with custom dark glassmorphism styling, sample prompts, hyperparameter adjustment sliders, dynamic metric ribbons, candidate voting distribution graphs, round-by-round debate transcripts, and Supreme Judge adjudication cards.
 - **`tests/test_api.py`**: Comprehensive endpoint test suite validating health probes, all reasoning modes, and 503 error handling.
 
+### Phase 10: Benchmark & Evaluation Engine
+- **`src/evaluation/dataset.py`**: Curated GSM8K arithmetic, multi-step math, and symbolic logic benchmark dataset with canonical ground truth answers and numerical verification (`extract_numerical_answer`, `is_answer_correct`).
+- **`src/evaluation/evaluator.py`**: 4-way comparative evaluation engine (`BenchmarkEvaluator`) systematically assessing:
+  1. Direct Inference (1 model call)
+  2. Self-Consistency (N samples, consensus voting)
+  3. Always-On Multi-Agent Debate (+ Supreme Judge)
+  4. Adaptive Router (Dynamic difficulty-aware routing)
+- **`src/evaluation/run_eval.py`**: Automated CLI benchmark tool reporting accuracy, mean calls per query, token consumption, latency, $0.00 external API cost, and routing breakdown (% Direct, % SC, % Debate).
+- **`tests/test_evaluation.py`**: Unit test suite validating answer extraction, tolerance verification, dataset filtering, and comparative evaluator metrics.
+
 ---
 
 ## Quickstart & Installation
@@ -244,6 +254,13 @@ Launch the interactive web UI:
 python -m streamlit run src/ui/app.py
 ```
 This opens `http://localhost:8501` in your browser with interactive cards, debate round transcripts, consensus graphs, and engine configuration controls.
+
+### 7. Running the Automated Benchmark
+Compare all 4 reasoning paradigms on the curated GSM8K benchmark:
+```bash
+python -m src.evaluation.run_eval --limit 5 --profile local_fast
+```
+Outputs a side-by-side comparison table showing accuracy, calls per query, token consumption, latency, and routing distribution.
 
 ---
 
