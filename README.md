@@ -278,6 +278,17 @@ python -m src.evaluation.run_ablation --suite all --limit 3 --profile local_fast
 ```
 Exports experimental results to `experiments/ablation_results.json` and `experiments/ablation_summary.csv`.
 
+### 9. Running Confidence Calibration & Failure Analysis
+Calculate Expected Calibration Error (ECE), Brier score, and classify system traces into the 8-category failure taxonomy:
+```bash
+python -m src.evaluation.run_calibration --dry-run
+# Or run with live Ollama inference:
+python -m src.evaluation.run_calibration --limit 5 --profile local_fast
+```
+Outputs:
+- **ASCII Reliability Diagram:** Maps verbalized confidence to empirical accuracy across probability bins.
+- **8-Category Failure Taxonomy:** Quantifies Error Recovery (`INITIAL_WRONG_DEBATE_CORRECT`), Truth Preservation (`INITIAL_CORRECT_DEBATE_CORRECT`), Harmful Concessions (`INITIAL_CORRECT_DEBATE_WRONG`), Under-Routing, Over-Routing, Judge Selection Errors, and Unanimous Hallucinations.
+
 ---
 
 ## Configuration (`config.json`)

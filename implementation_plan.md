@@ -1,86 +1,90 @@
-# Dual-Phase Implementation Plan: Phase 10 (Benchmark + Evaluation) & Phase 11 (Experiments + Ablation)
+# Dual-Phase Implementation Plan: Phase 12 (Confidence Calibration & Failure Analysis) & Phase 13 (Cost/Latency/Accuracy Optimization)
 
 ## Goal Description
-Implement the quantitative empirical core of the project:
-1. **Phase 10 — Benchmark + Evaluation Engine**:
-   - Establish an objectively checkable reasoning benchmark (GSM8K arithmetic & logic reasoning dataset with verifiable ground truth).
-   - Build an automated evaluation engine comparing 4 system paradigms:
-     1. **Single LLM (Direct)**
-     2. **Self-Consistency (N-sample majority voting)**
-     3. **Always-On Multi-Agent Debate (+ Supreme Judge)**
-     4. **Adaptive Router (Confidence/Difficulty-guided dynamic allocation)**
-   - Measure and report: Accuracy (Exact Match / canonical numerical equivalence), call counts, token accumulation, wall-clock latency, and routing distribution (% direct, % consistency, % debate).
-2. **Phase 11 — Experiments + Ablation Studies**:
-   - Systematic experimental framework recording reproducible runs into `experiments/` (JSON & CSV).
-   - Ablation studies exploring:
-     - Routing threshold sensitivity (High/Low thresholds)
-     - 2 vs 3 Debating Agents
-     - 1 vs 2 Debate Rounds
-     - Judge Adjudication vs Naive Majority Voting in debates
-     - Pareto frontier analysis: Accuracy vs Latency vs Compute overhead.
+Implement the deep diagnostic, calibration, and optimization engine of the project:
+1. **Phase 12 — Confidence Calibration + Failure Analysis**:
+   - Quantify verbalized confidence calibration: Do 90% confidence scores actually correspond to 90% correctness?
+   - Calculate **Expected Calibration Error (ECE)** and confidence reliability diagrams across probability bins.
+   - Comprehensive **8-category Failure Mode Taxonomy**:
+     1. `INITIAL_WRONG_DEBATE_CORRECT`: Successful error correction via debate cross-examination.
+     2. `INITIAL_WRONG_DEBATE_WRONG`: Intractable fallacy persistent across agents.
+     3. `INITIAL_CORRECT_DEBATE_CORRECT`: Stable reasoning preserved through scrutiny.
+     4. `INITIAL_CORRECT_DEBATE_WRONG`: Negative peer pressure / faulty concession.
+     5. `UNDER_ROUTING`: Router dispatched to Direct on complex problem, leading to error.
+     6. `OVER_ROUTING`: Router triggered expensive debate on easy problem, wasting compute.
+     7. `JUDGE_SELECTION_ERROR`: Agents debated correctly, but judge favored flawed argument.
+     8. `UNANIMOUS_HALLUCINATION`: Both debaters agreed on the same incorrect premise.
+2. **Phase 13 — Cost / Latency / Accuracy Optimization**:
+   - Multi-objective optimization framework analyzing the Accuracy vs Latency vs Compute trade-off.
+   - Pareto frontier identification: Finding the optimal confidence threshold pair $(T_{\text{high}}, T_{\text{low}})$ maximizing accuracy per unit compute.
+   - Plotting & reporting utility generating visual ASCII diagrams and metric logs:
+     - Accuracy vs Latency
+     - Accuracy vs Token Usage
+     - Accuracy vs Number of Calls
+     - Debate Activation vs Accuracy
 
 As required, both phases will be implemented in this session with **individual git commits per phase**.
 
 ---
 
-## Phase 10: Benchmark + Evaluation Engine
+## Phase 12: Confidence Calibration & Failure Analysis
 
-### 1. Benchmark Dataset & Extraction
-#### [NEW] `src/evaluation/dataset.py`
-- Curated reasoning dataset consisting of verified GSM8K arithmetic and multi-step logic problems across easy, medium, and hard difficulty levels with canonical ground truth answers.
-- Normalization and extraction utilities (`extract_numerical_answer`, `normalize_ground_truth`).
+### 1. Calibration Metrics & ECE
+#### [NEW] `src/evaluation/calibration.py`
+- `ConfidenceBin`: Bin range, average confidence, empirical accuracy, sample count, calibration gap.
+- `CalibrationAnalysis`:
+  - Expected Calibration Error (ECE): $\text{ECE} = \sum_{m=1}^M \frac{|B_m|}{N} |\text{acc}(B_m) - \text{conf}(B_m)|$.
+  - Maximum Calibration Error (MCE).
+  - Overconfidence / Underconfidence indicators.
 
-### 2. Evaluation Engine
-#### [NEW] `src/evaluation/evaluator.py`
-- `BenchmarkEvaluator`:
-  - Runs queries through all 4 paradigms:
-    1. Single LLM Direct
-    2. Self-Consistency
-    3. Always Debate + Judge
-    4. Adaptive Router
-  - Calculates accuracy, mean latency, token consumption, call counts, and routing breakdown.
-  - Produces structured evaluation reports.
+### 2. Failure Mode Taxonomy Engine
+#### [NEW] `src/evaluation/failure_analysis.py`
+- `FailureMode` Enum (8 distinct diagnostic categories).
+- `FailureAnalyzer`: Classifies individual query traces, logs concrete diagnostic examples, and computes distribution percentages.
 
-### 3. CLI Evaluation Runner
-#### [NEW] `src/evaluation/run_eval.py`
-- Executable benchmark script with tabular summary formatting and progress reporting.
+### 3. CLI Calibration & Failure Runner
+#### [NEW] `src/evaluation/run_calibration.py`
+- Evaluates benchmark queries, displays reliability diagrams, reports ECE, and outputs failure mode frequencies.
 
-### 4. Unit Tests & Commit for Phase 10
-#### [NEW] `tests/test_evaluation.py`
-- Tests dataset loading, answer extraction, scoring logic, and evaluator flow with mocks.
-- Git commit message: `feat(phase-10): implement benchmark evaluation engine with GSM8K reasoning subset and 4-strategy comparator`.
+### 4. Unit Tests & Commit for Phase 12
+#### [NEW] `tests/test_calibration.py`
+- Tests ECE calculation, bin grouping, and 8-category failure classification.
+- Git commit message: `feat(phase-12): implement confidence calibration analysis, ECE metric, and 8-category failure taxonomy`.
 
 ---
 
-## Phase 11: Experiments + Ablation Studies
+## Phase 13: Cost / Latency / Accuracy Optimization
 
-### 1. Experiment Runner & Artifact Storage
-#### [NEW] `src/evaluation/ablation.py`
-- `AblationEngine`:
-  - Threshold sensitivity ablation:
-    - Standard thresholds (0.80 / 0.50)
-    - Aggressive debate thresholds (0.90 / 0.70)
-    - Cost-saver direct thresholds (0.70 / 0.30)
-  - Debate depth ablation: 1 Round vs 2 Rounds vs 3 Rounds.
-  - Agent multiplicity: 2 Agents vs 3 Agents.
-  - Adjudication ablation: Judge vs simple agent majority voting.
-- Exports structured experiment runs into `experiments/results_*.json` and `experiments/ablation_summary.csv`.
+### 1. Pareto Frontier Optimizer
+#### [NEW] `src/evaluation/optimization.py`
+- `ParetoOptimizer`:
+  - Evaluates threshold candidate pairs $(T_{\text{high}}, T_{\text{low}})$ to find the Pareto non-dominated frontier.
+  - Multi-objective fitness function balancing Accuracy against Token and Latency overhead.
+  - Recommends the optimal operating configuration based on user priority (e.g. `QUALITY_FIRST`, `BALANCED`, `BUDGET_CONSTRAINED`).
 
-### 2. Unit Tests & Commit for Phase 11
-#### [NEW] `tests/test_ablation.py`
-- Tests ablation parameter grid generation, execution capture, and summary export.
-- Git commit message: `feat(phase-11): implement ablation study framework covering thresholds, debate rounds, agent counts, and judge arbitration`.
+### 2. Optimization Visualizer & Reporter
+#### [NEW] `src/evaluation/visualize.py`
+- ASCII curve and bar visualizer for terminal and reporting:
+  - Accuracy vs Calls
+  - Accuracy vs Latency
+  - Token Tradeoff
+  - Strategy Distribution
+
+### 3. Unit Tests & Commit for Phase 13
+#### [NEW] `tests/test_optimization.py`
+- Tests Pareto domination sorting, optimal threshold selection, and visualization generation.
+- Git commit message: `feat(phase-13): implement multi-objective Pareto optimization and trade-off visualizer`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `pytest tests/test_evaluation.py -v`
-- Run `pytest tests/test_ablation.py -v`
-- Run `pytest tests/ -v` to ensure 100% pass rate across all 60+ tests.
+- Run `pytest tests/test_calibration.py -v`
+- Run `pytest tests/test_optimization.py -v`
+- Run `pytest tests/ -v` to ensure 100% pass rate across all 70+ tests.
 
 ### Manual Verification
-- Execute benchmark evaluation runner:
-  `python -m src.evaluation.run_eval --limit 3 --profile local_fast`
-- Verify generated experiment JSON files in `experiments/`.
+- Execute calibration runner:
+  `python -m src.evaluation.run_calibration --limit 5 --profile local_fast`
+- Verify optimization recommendations and ASCII Pareto visualization.
