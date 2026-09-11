@@ -1,119 +1,93 @@
-# Phase 5 Implementation Plan: Multi-Agent Debate Foundation
+# Dual-Phase Implementation Plan: Phase 6 (Debate Judge) & Phase 7 (Complete Adaptive Reasoning Engine)
 
 ## Goal Description
-Implement the core **Multi-Agent Debate** engine using local Ollama models.
-Rather than a sequential review pipeline (Solver -> Critic -> Verifier), Phase 5 implements a genuine interactive debate where multiple agents (Agent A, Agent B) independently solve a question, inspect each other's full reasoning chains, challenge flawed assumptions, defend valid points, and revise their conclusions over multiple rounds.
+Implement the two culminating reasoning phases of the project:
+1. **Phase 6 — Debate Judge**: A separate impartial arbiter that reviews the full debate history, analyzes argument strength, logical consistency, and peer rebuttals, and issues an authoritative final answer with explanation (avoiding naive majority voting).
+2. **Phase 7 — Complete Adaptive Reasoning Engine**: The full synthesis of the system where the `AdaptiveRouter` dynamically routes across all three reasoning modes:
+   - **Mode 1 (EASY)** -> Direct (1 call)
+   - **Mode 2 (UNCERTAIN)** -> Self-Consistency ($1 + N$ samples, consensus voting)
+   - **Mode 3 (HARD)** -> Multi-Agent Debate + Judge ($1 + N_{\text{agents}} \times N_{\text{rounds}} + 1$ calls)
 
-## Key Principles of Genuine Multi-Agent Debate
-1. **Parallel Independent Discovery (Round 1)**:
-   - Agent A and Agent B solve the question with zero knowledge of each other's existence to avoid groupthink and anchoring bias.
-2. **Mutual Cross-Examination (Round 2+)**:
-   - Agent A is shown Agent B's exact argument and answer.
-   - Agent B is shown Agent A's exact argument and answer.
-   - Each agent is prompted to:
-     - Identify specific logical gaps, arithmetic errors, or unfounded assumptions in the peer's argument.
-     - Counter-argue and defend its own stance if sound.
-     - Concede and revise if the peer exposed a legitimate mistake.
-3. **Multi-Round Convergence & Revision Tracking**:
-   - Each turn detects whether an agent maintained its stance or revised its answer (`revised: True/False`).
-   - Tracks whether consensus is reached across all agents at the end of the rounds.
-4. **Configurable Debate Hyperparameters**:
-   - `num_agents`: default 2 (supports 3).
-   - `num_rounds`: default 2 (supports 3+).
-   - `agent_temperature`: non-zero temperature (e.g. 0.7) for cognitive diversity.
-   - Dedicated persona configurations.
+As requested, both phases will be implemented in this session, with **individual git commits per phase**.
 
 ---
 
-## Proposed Changes
+## Phase 6: Debate Judge
 
-### 1. Debate Data Models
-#### [NEW] `src/reasoning/debate_models.py`
-- `AgentConfig`: `name`, `persona`, `model`, `temperature`.
-- `DebateTurn`:
-  - `round_number: int`
-  - `agent_name: str`
-  - `argument: str`
-  - `current_answer: str`
-  - `revised: bool`
+### 1. Data Models
+#### [NEW] `src/reasoning/judge_models.py`
+- `JudgeVerdict`:
+  - `verdict_answer: str`
+  - `confidence_in_verdict: float` (0.0 - 1.0)
+  - `winning_agent: Optional[str]` ("Agent_A", "Agent_B", or "SYNTHESIS")
+  - `evaluation_summary: str`
+  - `identified_flaws: List[str]`
   - `token_usage: TokenUsage`
   - `latency_seconds: float`
-- `DebateRound`:
-  - `round_number: int`
-  - `turns: List[DebateTurn]`
-- `DebateTranscript`:
+- `DebatePipelineResult`:
   - `question: str`
-  - `rounds: List[DebateRound]`
-  - `final_agent_answers: Dict[str, str]`
-  - `consensus_reached: bool`
-  - `total_calls: int` ($N_{\text{agents}} \times N_{\text{rounds}}$)
+  - `final_answer: str`
+  - `explanation: str`
+  - `transcript: DebateTranscript`
+  - `verdict: JudgeVerdict`
+  - `total_calls: int` ($N_{\text{debate}} + 1$)
   - `total_token_usage: TokenUsage`
   - `total_latency_seconds: float`
   - `external_api_cost: float = 0.0`
-  - `metadata: Dict[str, Any]`
 
-### 2. Multi-Agent Debate Engine
-#### [NEW] `src/reasoning/debate.py`
-- `DebateAgent`:
-  - Represents an individual debater.
-  - Generates initial independent reasoning.
-  - Analyzes opponent arguments, challenges flaws, defends valid deductions, and outputs revised or defended answer.
-- `MultiAgentDebateEngine`:
-  - Orchestrates the rounds.
-  - Ensures clean peer transcript sharing.
-  - Aggregates the `DebateTranscript`.
+### 2. Debate Judge Engine
+#### [NEW] `src/reasoning/judge.py`
+- `DebateJudge`:
+  - Receives complete `DebateTranscript`.
+  - Prompts model with structured adjudication rubric (logical consistency, evidence, responsiveness to counterarguments, avoidance of dogmatic doubling-down).
+  - Evaluates argument merits and determines the winning argument or synthesized truth.
+- `DebateWithJudgePipeline`:
+  - Chains `MultiAgentDebateEngine` into `DebateJudge`.
 
-### 3. Configuration Updates
-#### [MODIFY] `config.json`
-- Add debate configuration:
-  ```json
-  "debate": {
-    "num_agents": 2,
-    "num_rounds": 2,
-    "agent_temperature": 0.7,
-    "agents": [
-      {
-        "name": "Agent_A",
-        "persona": "Analytical logician focused on rigorous first-principles derivation."
-      },
-      {
-        "name": "Agent_B",
-        "persona": "Critical empirical thinker focused on edge cases and counterexamples."
-      }
-    ]
-  }
-  ```
+### 3. Unit Tests & Commit for Phase 6
+#### [NEW] `tests/test_judge.py`
+- Tests judge parsing, verdict selection, flaw detection, and full debate-to-judge pipeline.
+- Git commit message: `feat(phase-6): implement debate judge and adjudication pipeline`.
 
-### 4. CLI Execution
+---
+
+## Phase 7: Complete Adaptive Reasoning Engine
+
+### 1. Adaptive Router Full Integration
+#### [MODIFY] `src/router/router.py`
+- Full routing dispatch:
+  - When query is `HARD` or low confidence:
+    - Runs `DebateWithJudgePipeline`.
+    - Returns verdict answer, debate transcript, and judge critique.
+  - When query is `UNCERTAIN`:
+    - Runs `SelfConsistencyReasoner`.
+  - When query is `EASY`:
+    - Runs `DirectReasoner` (1 call).
+
+### 2. Router Models Update
+#### [MODIFY] `src/router/models.py`
+- Enhance `RoutedResponse` to optionally embed `DebateTranscript`, `JudgeVerdict`, and `SelfConsistencyResult`.
+
+### 3. CLI & Application Integration
 #### [MODIFY] `src/main.py`
-- Support `--mode debate` to run a direct standalone debate and print the complete multi-round debate transcript, agent rebuttals, and consensus status.
+- Unified CLI displaying rich telemetry for all three active paths.
 
-### 5. Automated Tests
-#### [NEW] `tests/test_debate.py`
-- Unit tests for:
-  - Round 1 independent reasoning generation.
-  - Round 2 prompt construction containing opponent transcripts.
-  - Revision detection (`revised: True/False`).
-  - Consensus evaluation when agents agree vs disagree.
-  - Token aggregation and call counting ($N_{\text{agents}} \times N_{\text{rounds}}$).
-
-### 6. Documentation & Git Sync
-#### [MODIFY] `implementation_plan.md`
-- Attach Phase 5 plan directly in repository root.
-#### [MODIFY] `README.md`
-- Add Phase 5 Multi-Agent Debate architecture, debate protocol, CLI instructions, and transcript format.
-- Git commit and push to remote: `feat(phase-5): implement multi-agent debate foundation and transcript tracking`.
+### 4. Unit Tests & Commit for Phase 7
+#### [NEW] `tests/test_complete_pipeline.py`
+- Verifies that all 3 modes trigger properly, accumulate tokens, track call counts, and return structured telemetry.
+- Git commit message: `feat(phase-7): implement complete adaptive reasoning engine integrating direct, self-consistency, and debate+judge`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `.\venv\Scripts\python.exe -m pytest tests/ -v` to ensure all existing (26) and new unit tests pass (100% pass rate).
+- Run `pytest tests/ -v` to ensure 100% test pass rate across all suites (30+ tests).
 
 ### Manual Verification
-- Run a standalone debate via CLI:
-  `python -m src.main --question "Should self-driving cars prioritize passenger safety or pedestrian safety in unavoidable collisions?" --mode debate --profile local_fast`
-- Verify that Round 1 shows independent solutions from Agent A and Agent B.
-- Verify that Round 2 shows each agent referencing the other's points, challenging or defending arguments, and providing their current answer.
-- Verify total call count, token usage, latency, and $0.00 external cost.
+1. **Easy Question -> DIRECT**:
+   `python -m src.main -q "What is 15 + 25?" --profile local_fast` (Expect 1 call, DIRECT)
+2. **Uncertain Question -> SELF_CONSISTENCY**:
+   `python -m src.main -q "Which number is larger: 9.11 or 9.9?" --profile local_fast` (Expect 4 calls, consensus voting)
+3. **Hard Question -> MULTI_AGENT_DEBATE + JUDGE**:
+   `python -m src.main -q "Resolve the paradox of Schrödinger's cat in the context of the Many-Worlds interpretation versus the Copenhagen interpretation." --profile local_fast` (Expect full debate + judge verdict)

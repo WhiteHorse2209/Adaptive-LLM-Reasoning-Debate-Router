@@ -9,6 +9,8 @@ from src.reasoning.debate_models import (
     DebateTranscript,
 )
 from src.reasoning.debate import DebateAgent, MultiAgentDebateEngine
+from src.reasoning.judge_models import JudgeVerdict, DebatePipelineResult
+from src.reasoning.judge import DebateJudge, DebateWithJudgePipeline
 
 __all__ = [
     "DirectReasoner",
@@ -21,4 +23,8 @@ __all__ = [
     "DebateTranscript",
     "DebateAgent",
     "MultiAgentDebateEngine",
+    "JudgeVerdict",
+    "DebatePipelineResult",
+    "DebateJudge",
+    "DebateWithJudgePipeline",
 ]
