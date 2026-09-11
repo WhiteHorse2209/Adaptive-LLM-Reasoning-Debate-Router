@@ -300,10 +300,17 @@ report = optimizer.optimize(candidates, priority=OptimizationPriority.BALANCED)
 print(render_pareto_scatter(report.all_candidates))
 print(render_optimization_report(report))
 ```
-Features:
-- **Pareto Dominance Engine:** Strict mathematical non-dominance testing filtering suboptimal reasoning modes.
-- **Weighted Fitness Scoring:** Configurable balancing weights across Quality-First ($80/10/10$), Balanced ($50/25/25$), and Budget-Constrained ($25/35/40$).
-- **ASCII Visualizer:** 2D scatter plots with Pareto frontiers (`[*]`) vs dominated points (`[o]`), comparative horizontal bar charts, and routing proportions.
+### 11. Automated End-to-End Reproducibility & Verification
+Execute the master reproduction runner validating all 9 system stages (Modes 1, 2, 3, dynamic dispatch, benchmarks, calibration diagrams, 8-category failure taxonomy, and Pareto optimization):
+```bash
+# Fast offline validation using deterministic mock provider (ideal for CI/CD and tests):
+python scripts/reproduce.py
+
+# Or live inference execution against running local Ollama:
+python scripts/reproduce.py --live --profile local_fast
+```
+
+For an exhaustive directory-by-directory and file-by-file purpose breakdown covering all 14 project phases, consult the [Codebase & Architecture Guide](CODEBASE_GUIDE.md).
 
 ---
 

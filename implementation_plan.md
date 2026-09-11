@@ -1,90 +1,68 @@
-# Dual-Phase Implementation Plan: Phase 12 (Confidence Calibration & Failure Analysis) & Phase 13 (Cost/Latency/Accuracy Optimization)
+# Dual-Phase Implementation Plan: Phase 14 (Testing & Reproducibility) & Phase 15 (Cloud Model Adapters & Production Polish)
 
 ## Goal Description
-Implement the deep diagnostic, calibration, and optimization engine of the project:
-1. **Phase 12 — Confidence Calibration + Failure Analysis**:
-   - Quantify verbalized confidence calibration: Do 90% confidence scores actually correspond to 90% correctness?
-   - Calculate **Expected Calibration Error (ECE)** and confidence reliability diagrams across probability bins.
-   - Comprehensive **8-category Failure Mode Taxonomy**:
-     1. `INITIAL_WRONG_DEBATE_CORRECT`: Successful error correction via debate cross-examination.
-     2. `INITIAL_WRONG_DEBATE_WRONG`: Intractable fallacy persistent across agents.
-     3. `INITIAL_CORRECT_DEBATE_CORRECT`: Stable reasoning preserved through scrutiny.
-     4. `INITIAL_CORRECT_DEBATE_WRONG`: Negative peer pressure / faulty concession.
-     5. `UNDER_ROUTING`: Router dispatched to Direct on complex problem, leading to error.
-     6. `OVER_ROUTING`: Router triggered expensive debate on easy problem, wasting compute.
-     7. `JUDGE_SELECTION_ERROR`: Agents debated correctly, but judge favored flawed argument.
-     8. `UNANIMOUS_HALLUCINATION`: Both debaters agreed on the same incorrect premise.
-2. **Phase 13 — Cost / Latency / Accuracy Optimization**:
-   - Multi-objective optimization framework analyzing the Accuracy vs Latency vs Compute trade-off.
-   - Pareto frontier identification: Finding the optimal confidence threshold pair $(T_{\text{high}}, T_{\text{low}})$ maximizing accuracy per unit compute.
-   - Plotting & reporting utility generating visual ASCII diagrams and metric logs:
-     - Accuracy vs Latency
-     - Accuracy vs Token Usage
-     - Accuracy vs Number of Calls
-     - Debate Activation vs Accuracy
-
-As required, both phases will be implemented in this session with **individual git commits per phase**.
+Complete the final phases of the Adaptive LLM Reasoning & Debate Router portfolio project:
+1. **Phase 14 — Testing + Reproducibility + Final Documentation**:
+   - Comprehensive test suite validation (ensure 100% pass across all unit and integration layers).
+   - Automated end-to-end demonstration and verification script `scripts/reproduce.py` executing all 3 reasoning modes, benchmark evaluation, calibration, and Pareto optimization.
+   - Comprehensive documentation polish with ASCII architecture flowcharts, API reference, benchmark table, and full setup guides.
+2. **Phase 15 — Cloud Model Adapters + Final Polish**:
+   - Cloud provider adapters (`OpenAIProvider`, `AnthropicProvider`) following the uniform `LLMProvider` interface with optional API key support and offline mock capabilities.
+   - Final codebase cleanup, configuration validations, and portfolio presentation polish.
 
 ---
 
-## Phase 12: Confidence Calibration & Failure Analysis
+## Phase 14: Testing + Reproducibility + Final Documentation
 
-### 1. Calibration Metrics & ECE
-#### [NEW] `src/evaluation/calibration.py`
-- `ConfidenceBin`: Bin range, average confidence, empirical accuracy, sample count, calibration gap.
-- `CalibrationAnalysis`:
-  - Expected Calibration Error (ECE): $\text{ECE} = \sum_{m=1}^M \frac{|B_m|}{N} |\text{acc}(B_m) - \text{conf}(B_m)|$.
-  - Maximum Calibration Error (MCE).
-  - Overconfidence / Underconfidence indicators.
+### 1. Unified Reproducibility Script
+#### [NEW] `scripts/reproduce.py`
+- End-to-end verification script executing:
+  1. Config validation & provider health checks.
+  2. Direct mode execution on sample easy query.
+  3. Self-Consistency majority voting on sample uncertain query.
+  4. Multi-agent debate and judge adjudication on hard query.
+  5. Mini-benchmark evaluation comparison.
+  6. Confidence calibration and failure mode analysis.
+  7. Pareto optimization and ASCII scatter plot rendering.
 
-### 2. Failure Mode Taxonomy Engine
-#### [NEW] `src/evaluation/failure_analysis.py`
-- `FailureMode` Enum (8 distinct diagnostic categories).
-- `FailureAnalyzer`: Classifies individual query traces, logs concrete diagnostic examples, and computes distribution percentages.
+### 2. Comprehensive Documentation Polish
+#### [MODIFY] `README.md`
+- Complete system architecture diagrams with ASCII routing charts.
+- API and CLI reference with examples for every command.
+- Full installation guide, local Ollama setup, and reproduction instructions.
 
-### 3. CLI Calibration & Failure Runner
-#### [NEW] `src/evaluation/run_calibration.py`
-- Evaluates benchmark queries, displays reliability diagrams, reports ECE, and outputs failure mode frequencies.
-
-### 4. Unit Tests & Commit for Phase 12
-#### [NEW] `tests/test_calibration.py`
-- Tests ECE calculation, bin grouping, and 8-category failure classification.
-- Git commit message: `feat(phase-12): implement confidence calibration analysis, ECE metric, and 8-category failure taxonomy`.
+### 3. Unit & Integration Test Suite Finalization
+#### [NEW] `tests/test_reproducibility.py`
+- Tests end-to-end flow of the reproduction pipeline.
+- Git commit message: `feat(phase-14): implement end-to-end reproducibility pipeline and comprehensive system documentation`.
 
 ---
 
-## Phase 13: Cost / Latency / Accuracy Optimization
+## Phase 15: Cloud Model Adapters + Final Polish
 
-### 1. Pareto Frontier Optimizer
-#### [NEW] `src/evaluation/optimization.py`
-- `ParetoOptimizer`:
-  - Evaluates threshold candidate pairs $(T_{\text{high}}, T_{\text{low}})$ to find the Pareto non-dominated frontier.
-  - Multi-objective fitness function balancing Accuracy against Token and Latency overhead.
-  - Recommends the optimal operating configuration based on user priority (e.g. `QUALITY_FIRST`, `BALANCED`, `BUDGET_CONSTRAINED`).
+### 1. Cloud Provider Adapters
+#### [NEW] `src/provider/cloud.py`
+- `OpenAIProvider`: Implements `LLMProvider` for OpenAI `/v1/chat/completions` API schema.
+- `AnthropicProvider`: Implements `LLMProvider` for Anthropic `/v1/messages` API schema.
+- Built-in graceful fallbacks and offline mock testing without requiring paid API keys.
+#### [MODIFY] `src/provider/factory.py`
+- Wire `"openai"` and `"anthropic"` into provider factory.
+#### [MODIFY] `config.json`
+- Add optional `cloud_openai` and `cloud_anthropic` profiles to `config.json`.
 
-### 2. Optimization Visualizer & Reporter
-#### [NEW] `src/evaluation/visualize.py`
-- ASCII curve and bar visualizer for terminal and reporting:
-  - Accuracy vs Calls
-  - Accuracy vs Latency
-  - Token Tradeoff
-  - Strategy Distribution
-
-### 3. Unit Tests & Commit for Phase 13
-#### [NEW] `tests/test_optimization.py`
-- Tests Pareto domination sorting, optimal threshold selection, and visualization generation.
-- Git commit message: `feat(phase-13): implement multi-objective Pareto optimization and trade-off visualizer`.
+### 2. Unit Tests for Cloud Adapters
+#### [NEW] `tests/test_cloud_providers.py`
+- Tests request formation, error handling, token tracking, and factory integration for cloud providers using mocks.
+- Git commit message: `feat(phase-15): implement OpenAI and Anthropic cloud provider adapters and final production polish`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `pytest tests/test_calibration.py -v`
-- Run `pytest tests/test_optimization.py -v`
-- Run `pytest tests/ -v` to ensure 100% pass rate across all 70+ tests.
+- Run `python -m pytest tests/ -v` to ensure all 80+ tests pass with zero errors.
+- Run `python -m scripts.reproduce --dry-run` to verify end-to-end pipeline execution.
 
 ### Manual Verification
-- Execute calibration runner:
-  `python -m src.evaluation.run_calibration --limit 5 --profile local_fast`
-- Verify optimization recommendations and ASCII Pareto visualization.
+- Test CLI adaptive mode with local Ollama models (`llama3.2:latest`, `qwen3:1.7b`).
+- Verify Streamlit UI and FastAPI endpoints.
