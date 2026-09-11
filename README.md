@@ -289,6 +289,22 @@ Outputs:
 - **ASCII Reliability Diagram:** Maps verbalized confidence to empirical accuracy across probability bins.
 - **8-Category Failure Taxonomy:** Quantifies Error Recovery (`INITIAL_WRONG_DEBATE_CORRECT`), Truth Preservation (`INITIAL_CORRECT_DEBATE_CORRECT`), Harmful Concessions (`INITIAL_CORRECT_DEBATE_WRONG`), Under-Routing, Over-Routing, Judge Selection Errors, and Unanimous Hallucinations.
 
+### 10. Multi-Objective Pareto Optimization & Trade-Off Visualization
+Analyze the non-dominated Pareto frontier across Accuracy vs Compute vs Latency, and score configurations across priority presets (`QUALITY_FIRST`, `BALANCED`, `BUDGET_CONSTRAINED`):
+```python
+from src.evaluation.optimization import ParetoOptimizer, OptimizationPriority
+from src.evaluation.visualize import render_pareto_scatter, render_tradeoff_barchart, render_optimization_report
+
+optimizer = ParetoOptimizer()
+report = optimizer.optimize(candidates, priority=OptimizationPriority.BALANCED)
+print(render_pareto_scatter(report.all_candidates))
+print(render_optimization_report(report))
+```
+Features:
+- **Pareto Dominance Engine:** Strict mathematical non-dominance testing filtering suboptimal reasoning modes.
+- **Weighted Fitness Scoring:** Configurable balancing weights across Quality-First ($80/10/10$), Balanced ($50/25/25$), and Budget-Constrained ($25/35/40$).
+- **ASCII Visualizer:** 2D scatter plots with Pareto frontiers (`[*]`) vs dominated points (`[o]`), comparative horizontal bar charts, and routing proportions.
+
 ---
 
 ## Configuration (`config.json`)
