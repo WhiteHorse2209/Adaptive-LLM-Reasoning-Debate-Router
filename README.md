@@ -95,6 +95,13 @@ The primary initial design focuses entirely on local-first LLM inference using *
 - **`src/main.py`**: Unified CLI with automatic adaptive routing (`--mode adaptive`), manual overrides (`--mode direct`, `--mode debate`), and comprehensive telemetry reporting.
 - **`tests/test_complete_pipeline.py`**: End-to-end integration test suite validating call count bounds, token accumulation, and routing decisions.
 
+### Phase 8: Robust LLM Engineering
+- **`src/provider/exceptions.py`**: Domain exception hierarchy distinguishing connection refusal (`OllamaConnectionError`), missing local model / 404 (`OllamaModelNotFoundError`), wall-clock timeouts (`OllamaTimeoutError`), and corrupted JSON structures (`MalformedOutputError`).
+- **`src/utils/logger.py`**: Structured logger tagging traces with correlated `request_id`, timestamps, log levels, and extra telemetry metadata.
+- **`src/utils/retry.py`**: Exponential backoff retry engine with jitter, capped retries (preventing infinite loops), and immediate fast-path aborts on non-retryable errors.
+- **`src/router/router.py`**: End-to-end request ID propagation and graceful error degradation — safely falling back to direct reasoning if multi-agent debate or self-consistency encounters unrecoverable upstream failures.
+- **`tests/test_robustness.py`**: Comprehensive test suite verifying retries, error classifications, fast-path aborts, and router fallback mechanisms.
+
 ---
 
 ## Quickstart & Installation

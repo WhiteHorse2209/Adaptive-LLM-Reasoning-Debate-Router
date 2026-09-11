@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, Dict, Optional
 
 from src.provider.base import LLMProvider
@@ -10,6 +11,7 @@ from src.router.models import (
     ReasoningStrategy,
     RoutedResponse,
 )
+from src.utils.logger import get_logger
 
 
 class AdaptiveRouter:
@@ -33,6 +35,7 @@ class AdaptiveRouter:
         self.consistency_samples = int(self.config.get("consistency_samples", 3))
         self.sample_temperature = float(self.config.get("sample_temperature", 0.7))
 
+        self.logger = get_logger("adaptive_router")
         self.estimator = ConfidenceEstimator(provider)
         self.consistency_reasoner = SelfConsistencyReasoner(provider)
         self.debate_pipeline = DebateWithJudgePipeline(
@@ -44,8 +47,12 @@ class AdaptiveRouter:
         question: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        request_id: Optional[str] = None,
     ) -> RoutedResponse:
         """Evaluates query difficulty, routes accordingly across the 3 modes, and returns structured response."""
+        req_id = request_id or uuid.uuid4().hex[:8]
+        self.logger.info(f"Routing request [{req_id}]: {question[:80]}...")
+
         # 1. Initial pass: generate proposed answer and estimate confidence/difficulty
         initial_answer, initial_explanation, assessment, initial_resp = self.estimator.assess_and_solve(
             question=question,
@@ -67,62 +74,104 @@ class AdaptiveRouter:
             strategy = ReasoningStrategy.MULTI_AGENT_DEBATE
             difficulty = DifficultyLevel.HARD
 
-            pipeline_result = self.debate_pipeline.run(question)
-            final_answer = pipeline_result.final_answer
-            final_explanation = pipeline_result.explanation
-            transcript = pipeline_result.transcript
-            verdict = pipeline_result.verdict
+            try:
+                self.logger.info(f"[{req_id}] Initiating Mode 3: MULTI_AGENT_DEBATE")
+                pipeline_result = self.debate_pipeline.run(question)
+                final_answer = pipeline_result.final_answer
+                final_explanation = pipeline_result.explanation
+                transcript = pipeline_result.transcript
+                verdict = pipeline_result.verdict
 
-            call_count = 1 + pipeline_result.total_calls
-            total_usage = TokenUsage(
-                prompt_tokens=initial_usage.prompt_tokens + pipeline_result.total_token_usage.prompt_tokens,
-                completion_tokens=initial_usage.completion_tokens + pipeline_result.total_token_usage.completion_tokens,
-                total_tokens=initial_usage.total_tokens + pipeline_result.total_token_usage.total_tokens,
-            )
-            total_latency = initial_latency + pipeline_result.total_latency_seconds
+                call_count = 1 + pipeline_result.total_calls
+                total_usage = TokenUsage(
+                    prompt_tokens=initial_usage.prompt_tokens + pipeline_result.total_token_usage.prompt_tokens,
+                    completion_tokens=initial_usage.completion_tokens + pipeline_result.total_token_usage.completion_tokens,
+                    total_tokens=initial_usage.total_tokens + pipeline_result.total_token_usage.total_tokens,
+                )
+                total_latency = initial_latency + pipeline_result.total_latency_seconds
 
-            metadata = {
-                "route_decision": "MULTI_AGENT_DEBATE",
-                "route_reason": f"High difficulty or low confidence ({score:.2f} < {self.threshold_low:.2f}). Executed full debate and judge pipeline.",
-                "winning_agent": verdict.winning_agent,
-                "confidence_in_verdict": verdict.confidence_in_verdict,
-                "consensus_reached_in_debate": transcript.consensus_reached,
-                "identified_flaws": verdict.identified_flaws,
-                **initial_resp.metadata,
-            }
+                metadata = {
+                    "request_id": req_id,
+                    "route_decision": "MULTI_AGENT_DEBATE",
+                    "route_reason": f"High difficulty or low confidence ({score:.2f} < {self.threshold_low:.2f}). Executed full debate and judge pipeline.",
+                    "winning_agent": verdict.winning_agent,
+                    "confidence_in_verdict": verdict.confidence_in_verdict,
+                    "consensus_reached_in_debate": transcript.consensus_reached,
+                    "identified_flaws": verdict.identified_flaws,
+                    **initial_resp.metadata,
+                }
+            except Exception as exc:
+                self.logger.warning(
+                    f"[{req_id}] Debate pipeline encountered failure: {exc}. Gracefully falling back to initial answer."
+                )
+                strategy = ReasoningStrategy.DIRECT
+                final_answer = initial_answer
+                final_explanation = f"{initial_explanation}\n[NOTE: Graceful fallback from debate mode due to: {exc}]"
+                call_count = 1
+                total_usage = initial_usage
+                total_latency = initial_latency
+                metadata = {
+                    "request_id": req_id,
+                    "route_decision": "DIRECT_FALLBACK",
+                    "fallback_triggered": True,
+                    "original_strategy": "MULTI_AGENT_DEBATE",
+                    "fallback_error": str(exc),
+                    **initial_resp.metadata,
+                }
 
         elif assessment.difficulty == DifficultyLevel.UNCERTAIN or score < self.threshold_high:
             # Mode 2: SELF_CONSISTENCY (Multi-path sampling & consensus voting)
             strategy = ReasoningStrategy.SELF_CONSISTENCY
             difficulty = DifficultyLevel.UNCERTAIN
 
-            sc_result = self.consistency_reasoner.sample_and_vote(
-                question=question,
-                num_samples=self.consistency_samples,
-                temperature=self.sample_temperature,
-                max_tokens=max_tokens,
-            )
+            try:
+                self.logger.info(f"[{req_id}] Initiating Mode 2: SELF_CONSISTENCY")
+                sc_result = self.consistency_reasoner.sample_and_vote(
+                    question=question,
+                    num_samples=self.consistency_samples,
+                    temperature=self.sample_temperature,
+                    max_tokens=max_tokens,
+                )
 
-            final_answer = sc_result.final_answer
-            final_explanation = sc_result.final_explanation
-            call_count = 1 + sc_result.num_samples
+                final_answer = sc_result.final_answer
+                final_explanation = sc_result.final_explanation
+                call_count = 1 + sc_result.num_samples
 
-            total_usage = TokenUsage(
-                prompt_tokens=initial_usage.prompt_tokens + sc_result.token_usage.prompt_tokens,
-                completion_tokens=initial_usage.completion_tokens + sc_result.token_usage.completion_tokens,
-                total_tokens=initial_usage.total_tokens + sc_result.token_usage.total_tokens,
-            )
-            total_latency = initial_latency + sc_result.latency_seconds
+                total_usage = TokenUsage(
+                    prompt_tokens=initial_usage.prompt_tokens + sc_result.token_usage.prompt_tokens,
+                    completion_tokens=initial_usage.completion_tokens + sc_result.token_usage.completion_tokens,
+                    total_tokens=initial_usage.total_tokens + sc_result.token_usage.total_tokens,
+                )
+                total_latency = initial_latency + sc_result.latency_seconds
 
-            metadata = {
-                "route_decision": "SELF_CONSISTENCY",
-                "route_reason": f"Uncertain query or moderate confidence ({score:.2f} in [{self.threshold_low:.2f}, {self.threshold_high:.2f})). Majority voting applied.",
-                "num_samples": sc_result.num_samples,
-                "agreement_score": sc_result.agreement_score,
-                "agreement_distribution": sc_result.agreement_distribution,
-                "candidate_answers": [c.answer for c in sc_result.candidates],
-                **initial_resp.metadata,
-            }
+                metadata = {
+                    "request_id": req_id,
+                    "route_decision": "SELF_CONSISTENCY",
+                    "route_reason": f"Uncertain query or moderate confidence ({score:.2f} in [{self.threshold_low:.2f}, {self.threshold_high:.2f})). Majority voting applied.",
+                    "num_samples": sc_result.num_samples,
+                    "agreement_score": sc_result.agreement_score,
+                    "agreement_distribution": sc_result.agreement_distribution,
+                    "candidate_answers": [c.answer for c in sc_result.candidates],
+                    **initial_resp.metadata,
+                }
+            except Exception as exc:
+                self.logger.warning(
+                    f"[{req_id}] Self-consistency encountered failure: {exc}. Gracefully falling back to initial answer."
+                )
+                strategy = ReasoningStrategy.DIRECT
+                final_answer = initial_answer
+                final_explanation = f"{initial_explanation}\n[NOTE: Graceful fallback from self-consistency due to: {exc}]"
+                call_count = 1
+                total_usage = initial_usage
+                total_latency = initial_latency
+                metadata = {
+                    "request_id": req_id,
+                    "route_decision": "DIRECT_FALLBACK",
+                    "fallback_triggered": True,
+                    "original_strategy": "SELF_CONSISTENCY",
+                    "fallback_error": str(exc),
+                    **initial_resp.metadata,
+                }
 
         else:
             # Mode 1: DIRECT (Easy query + High confidence -> 1 model call)
@@ -135,6 +184,7 @@ class AdaptiveRouter:
             total_latency = initial_latency
 
             metadata = {
+                "request_id": req_id,
                 "route_decision": "DIRECT",
                 "route_reason": f"High confidence ({score:.2f} >= {self.threshold_high:.2f}) on EASY query. No additional compute needed.",
                 "additional_agents_called": 0,
