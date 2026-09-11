@@ -102,6 +102,14 @@ The primary initial design focuses entirely on local-first LLM inference using *
 - **`src/router/router.py`**: End-to-end request ID propagation and graceful error degradation — safely falling back to direct reasoning if multi-agent debate or self-consistency encounters unrecoverable upstream failures.
 - **`tests/test_robustness.py`**: Comprehensive test suite verifying retries, error classifications, fast-path aborts, and router fallback mechanisms.
 
+### Phase 9: FastAPI + Streamlit Serving Layer
+- **`src/api/models.py`**: Strict Pydantic models for API requests (`ReasonApiRequest`) and telemetry-rich responses (`ReasonApiResponse`, `HealthApiResponse`).
+- **`src/api/app.py`**: Production-grade FastAPI application with CORS support exposing:
+  - `GET /health`: Health probe reporting Ollama reachability, active profile, and model status.
+  - `POST /reason`: Universal inference endpoint supporting autonomous adaptive dispatch or manual mode overrides with structured telemetry.
+- **`src/ui/app.py`**: Modern Streamlit web application with custom dark glassmorphism styling, sample prompts, hyperparameter adjustment sliders, dynamic metric ribbons, candidate voting distribution graphs, round-by-round debate transcripts, and Supreme Judge adjudication cards.
+- **`tests/test_api.py`**: Comprehensive endpoint test suite validating health probes, all reasoning modes, and 503 error handling.
+
 ---
 
 ## Quickstart & Installation
@@ -206,6 +214,36 @@ python -m src.main --question "A bat and ball cost $1.10 in total. The bat costs
 python -m src.main --question "Resolve the ship of Theseus paradox considering physical continuity versus informational identity." --mode adaptive --profile local_fast
 # -> Evaluated as HARD (Confidence 0.35) -> Executes MULTI-AGENT DEBATE + JUDGE (6 calls)
 ```
+
+### 5. Running the FastAPI REST Server
+Start the production API server on port 8000:
+```bash
+python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+- **Health Check:**
+  ```bash
+  curl -X GET http://localhost:8000/health
+  ```
+- **Reasoning Query (Adaptive):**
+  ```bash
+  curl -X POST http://localhost:8000/reason \
+    -H "Content-Type: application/json" \
+    -d "{\"question\": \"Which is larger: 9.11 or 9.9?\", \"mode\": \"adaptive\"}"
+  ```
+- **Reasoning Query (Manual Debate Override):**
+  ```bash
+  curl -X POST http://localhost:8000/reason \
+    -H "Content-Type: application/json" \
+    -d "{\"question\": \"Should AI possess legal rights?\", \"mode\": \"debate\", \"rounds\": 2}"
+  ```
+
+### 6. Running the Streamlit Web Dashboard
+Launch the interactive web UI:
+```bash
+python -m streamlit run src/ui/app.py
+```
+This opens `http://localhost:8501` in your browser with interactive cards, debate round transcripts, consensus graphs, and engine configuration controls.
 
 ---
 
