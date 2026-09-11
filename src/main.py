@@ -2,14 +2,15 @@ import argparse
 import json
 import sys
 
-from src.config.config import load_config, get_active_profile
+from src.config.config import load_config
 from src.provider.factory import get_provider
 from src.reasoning.direct import DirectReasoner
+from src.router.router import AdaptiveRouter
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Adaptive LLM Reasoning & Debate Router - Single LLM Direct Reasoning (Phase 2)"
+        description="Adaptive LLM Reasoning & Debate Router - Dynamic Mode & Direct Routing (Phase 3)"
     )
     parser.add_argument(
         "--question",
@@ -26,6 +27,13 @@ def main():
         help="Model profile name to use (defaults to active_profile in config.json).",
     )
     parser.add_argument(
+        "--mode",
+        "-m",
+        choices=["adaptive", "direct"],
+        default="adaptive",
+        help="Execution mode: 'adaptive' (routes based on difficulty/confidence) or 'direct' (unconditional direct reasoning).",
+    )
+    parser.add_argument(
         "--config",
         "-c",
         type=str,
@@ -35,7 +43,7 @@ def main():
     parser.add_argument(
         "--format",
         choices=["json", "text"],
-        default="json",
+        default="text",
         help="Output format (json or text).",
     )
 
@@ -59,6 +67,7 @@ def main():
         sys.exit(1)
 
     profile_config = config["profiles"][profile_name]
+    router_config = config.get("router", {})
 
     # Instantiate Provider via Abstraction Factory
     try:
@@ -75,30 +84,44 @@ def main():
             file=sys.stderr,
         )
 
-    # Run Direct Reasoner
-    reasoner = DirectReasoner(provider)
+    # Execute Reasoning Pipeline
     try:
-        response = reasoner.answer(args.question)
+        if args.mode == "adaptive":
+            router = AdaptiveRouter(provider, router_config=router_config)
+            response = router.route_and_solve(args.question)
+        else:
+            reasoner = DirectReasoner(provider)
+            response = reasoner.answer(args.question)
     except Exception as e:
-        print(f"Error during reasoning: {e}", file=sys.stderr)
+        print(f"Error during reasoning execution: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Render Output
     if args.format == "json":
         print(json.dumps(response.model_dump(), indent=2))
     else:
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 65)
         print("QUESTION:")
         print(f"  {args.question}")
         print("\nEXPLANATION:")
         print(f"  {response.explanation}")
         print("\nFINAL ANSWER:")
         print(f"  {response.answer}")
-        print("\nTELEMETRY:")
+        print("\nROUTING & CONFIDENCE TELEMETRY:")
+        if hasattr(response, "strategy"):
+            print(f"  Strategy:         {response.strategy.value}")
+            print(f"  Difficulty:       {response.difficulty.value}")
+            print(f"  Confidence:       {response.confidence.score:.2f} ({response.confidence.level})")
+            print(f"  Confidence Note:  {response.confidence.justification}")
+            print(f"  Calls Made:       {response.call_count}")
         print(f"  Model:            {response.model} ({response.provider})")
         print(f"  Latency:          {response.latency_seconds}s")
-        print(f"  Tokens:           {response.token_usage.total_tokens} (prompt: {response.token_usage.prompt_tokens}, completion: {response.token_usage.completion_tokens})")
-        print(f"  External Cost:    ${response.external_api_cost:.4f} (Local Hardware)")
-        print("=" * 60 + "\n")
+        print(
+            f"  Tokens:           {response.token_usage.total_tokens} "
+            f"(prompt: {response.token_usage.prompt_tokens}, completion: {response.token_usage.completion_tokens})"
+        )
+        print(f"  External Cost:    ${response.external_api_cost:.4f} (Zero API Cost - Local Hardware)")
+        print("=" * 65 + "\n")
 
 
 if __name__ == "__main__":

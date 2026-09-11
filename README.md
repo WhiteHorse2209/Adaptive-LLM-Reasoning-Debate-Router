@@ -16,7 +16,20 @@ The primary initial design focuses entirely on local-first LLM inference using *
                     USER QUESTION
                           │
                           ▼
-                  DIRECT / ROUTER
+                 CONFIDENCE ESTIMATOR
+              (Score: 0.0-1.0, Difficulty)
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+      [EASY]         [UNCERTAIN]       [HARD]
+   Score >= 0.80    0.50 <= S < 0.80  Score < 0.50
+          │               │               │
+          ▼               ▼               ▼
+       MODE 1          MODE 2          MODE 3
+       DIRECT     SELF-CONSISTENCY     DEBATE
+    (1 LLM Call)   (N Gen Samples)   (Multi-Round)
+          │               │               │
+          └───────────────┼───────────────┘
                           │
                           ▼
                  LLM PROVIDER LAYER (Abstract)
@@ -27,23 +40,26 @@ The primary initial design focuses entirely on local-first LLM inference using *
   (Local GPU / CPU)
            │
            ▼
-    STRUCTURED OUTPUT
-  (Answer, Explanation, Telemetry)
+    STRUCTURED ROUTED OUTPUT
+  (Answer, Strategy, Confidence, Call Count, Tokens, Latency)
 ```
 
 ---
 
-## Phase 2: Ollama Provider & Single LLM Reasoning
+## Core Components
 
-Phase 2 implements the provider abstraction layer and the direct single-model reasoning pipeline.
-
-### Core Modules
+### Phase 2: Provider Abstraction & Single LLM Direct Reasoning
 - **`src/provider/models.py`**: Pydantic data schemas (`LLMRequest`, `LLMResponse`, `TokenUsage`, `StructuredQAResponse`).
 - **`src/provider/base.py`**: Abstract base class `LLMProvider` defining uniform `generate()`, `health_check()`, and cost calculation interfaces.
 - **`src/provider/ollama.py`**: Full Ollama REST API integration (`/api/generate`) with automatic token count extraction (`prompt_eval_count`, `eval_count`), high-resolution wall-clock latency measurement, and robust error handling.
 - **`src/provider/factory.py`**: Provider factory isolating model selection from application logic.
 - **`src/reasoning/direct.py`**: `DirectReasoner` handling single-model inference and parsing answers/explanations into structured formats.
-- **`src/main.py`**: CLI entry point for executing questions against configured model profiles.
+
+### Phase 3: Confidence Estimation & Adaptive Direct Routing
+- **`src/router/models.py`**: Enums for `DifficultyLevel` (`EASY`, `UNCERTAIN`, `HARD`), `ReasoningStrategy` (`DIRECT`, `SELF_CONSISTENCY`, `MULTI_AGENT_DEBATE`), `ConfidenceAssessment`, and `RoutedResponse`.
+- **`src/router/estimator.py`**: `ConfidenceEstimator` providing single-pass difficulty classification, verbalized confidence extraction (0.0 to 1.0), and justification notes with resilient parsing and fallback heuristics.
+- **`src/router/router.py`**: `AdaptiveRouter` comparing confidence against configurable thresholds. Easy queries immediately route to `DIRECT` mode (1 call, 0 extra agents), intelligently preventing unnecessary compute.
+- **`src/main.py`**: CLI entry point supporting `--mode {adaptive, direct}` and `--format {text, json}`.
 
 ---
 
@@ -55,7 +71,7 @@ Phase 2 implements the provider abstraction layer and the direct single-model re
   ```bash
   ollama serve
   ```
-- Pull local models (for example, `llama3.2` or `qwen3`):
+- Pull local models (e.g., `llama3.2` or `qwen3`):
   ```bash
   ollama pull llama3.2:latest
   ```
@@ -74,45 +90,48 @@ pip install -r requirements.txt
 python -m pytest tests/ -v
 ```
 
-### 4. Run Single LLM Question Answering
+### 4. Run Question Answering & Adaptive Routing
 
-**Human-readable format:**
+**Adaptive Routing Mode (Default - dynamically routes based on confidence):**
 ```bash
-python -m src.main --question "What is 25 * 4?" --profile local_fast --format text
+python -m src.main --question "What is 25 * 4?" --profile local_fast --mode adaptive
 ```
 
-**Structured JSON format:**
+Example Output for Easy Query (Routed to DIRECT):
+```
+=================================================================
+QUESTION:
+  What is 25 * 4?
+
+EXPLANATION:
+  To find the product of 25 and 4, we multiply these two numbers together.
+
+FINAL ANSWER:
+  100
+
+ROUTING & CONFIDENCE TELEMETRY:
+  Strategy:         DIRECT
+  Difficulty:       EASY
+  Confidence:       1.00 (HIGH)
+  Confidence Note:  This is a basic arithmetic operation that can be solved with ease.
+  Calls Made:       1
+  Model:            llama3.2:latest (ollama)
+  Latency:          1.42s
+  Tokens:           205 (prompt: 136, completion: 69)
+  External Cost:    $0.0000 (Zero API Cost - Local Hardware)
+=================================================================
+```
+
+**JSON Output Format:**
 ```bash
 python -m src.main --question "What is 25 * 4?" --profile local_fast --format json
-```
-
-Example JSON Output:
-```json
-{
-  "answer": "100",
-  "explanation": "To calculate 25 * 4, multiply 25 by 4: 25 + 25 + 25 + 25 = 100.",
-  "model": "llama3.2:latest",
-  "provider": "ollama",
-  "token_usage": {
-    "prompt_tokens": 58,
-    "completion_tokens": 34,
-    "total_tokens": 92
-  },
-  "latency_seconds": 1.4821,
-  "external_api_cost": 0.0,
-  "metadata": {
-    "provider": "ollama",
-    "done": true,
-    "done_reason": "stop"
-  }
-}
 ```
 
 ---
 
 ## Configuration (`config.json`)
 
-Model profiles and parameters are configured independently of application code:
+Model profiles and router thresholds are configured independently of application code:
 ```json
 {
   "active_profile": "local_fast",
@@ -135,8 +154,9 @@ Model profiles and parameters are configured independently of application code:
     }
   },
   "router": {
-    "confidence_threshold_high": 0.9,
-    "confidence_threshold_low": 0.5,
+    "confidence_threshold_high": 0.80,
+    "confidence_threshold_low": 0.50,
+    "estimation_mode": "single_pass",
     "consistency_samples": 5
   }
 }

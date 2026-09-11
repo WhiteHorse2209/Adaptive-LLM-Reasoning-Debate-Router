@@ -19,8 +19,9 @@
     }
   },
   "router": {
-    "confidence_threshold_high": 0.9,
-    "confidence_threshold_low": 0.5,
+    "confidence_threshold_high": 0.80,
+    "confidence_threshold_low": 0.50,
+    "estimation_mode": "single_pass",
     "consistency_samples": 5
   }
 }
