@@ -120,6 +120,15 @@ The primary initial design focuses entirely on local-first LLM inference using *
 - **`src/evaluation/run_eval.py`**: Automated CLI benchmark tool reporting accuracy, mean calls per query, token consumption, latency, $0.00 external API cost, and routing breakdown (% Direct, % SC, % Debate).
 - **`tests/test_evaluation.py`**: Unit test suite validating answer extraction, tolerance verification, dataset filtering, and comparative evaluator metrics.
 
+### Phase 11: Experiments & Ablation Framework
+- **`src/evaluation/ablation.py`**: Systematic experimental engine (`AblationEngine`) evaluating configuration permutations across 4 dimensions:
+  1. **Threshold Grids**: Standard (0.80/0.50) vs Conservative/Quality-first (0.90/0.70) vs Cost-saver/Direct (0.70/0.30).
+  2. **Debate Depth**: 1 Round vs 2 Rounds vs 3 Rounds.
+  3. **Agent Multiplicity**: 2 Agents vs 3 Agents.
+  4. **Adjudication Method**: Impartial Supreme Judge vs Naive Agent Majority Voting.
+- **`src/evaluation/run_ablation.py`**: CLI tool executing ablation runs and exporting structured JSON/CSV metrics to `experiments/`.
+- **`tests/test_ablation.py`**: Unit test suite validating grid generation, execution, majority voting ablation, and artifact export.
+
 ---
 
 ## Quickstart & Installation
@@ -261,6 +270,13 @@ Compare all 4 reasoning paradigms on the curated GSM8K benchmark:
 python -m src.evaluation.run_eval --limit 5 --profile local_fast
 ```
 Outputs a side-by-side comparison table showing accuracy, calls per query, token consumption, latency, and routing distribution.
+
+### 8. Running Ablation Studies
+Run parameter grid evaluations exploring thresholds, debate rounds, agent counts, and judge arbitration:
+```bash
+python -m src.evaluation.run_ablation --suite all --limit 3 --profile local_fast
+```
+Exports experimental results to `experiments/ablation_results.json` and `experiments/ablation_summary.csv`.
 
 ---
 
