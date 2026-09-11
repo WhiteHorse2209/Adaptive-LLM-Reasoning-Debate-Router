@@ -1,116 +1,119 @@
-# Phase 4 Implementation Plan: Self-Consistency Reasoning
+# Phase 5 Implementation Plan: Multi-Agent Debate Foundation
 
 ## Goal Description
-Implement **Mode 2 — Self-Consistency** using the local Ollama provider. For queries identified by the router as `UNCERTAIN`, the system generates multiple independent candidate reasoning paths at non-zero temperature, compares candidate answers, performs majority voting to select the most consistent answer, and calculates the consensus/agreement metric. The router will be updated so that:
-- **EASY** -> DIRECT (1 call)
-- **UNCERTAIN** -> SELF-CONSISTENCY ($N$ samples, consensus voting)
-- **HARD** -> MULTI-AGENT DEBATE (Flagged for Phase 5)
+Implement the core **Multi-Agent Debate** engine using local Ollama models.
+Rather than a sequential review pipeline (Solver -> Critic -> Verifier), Phase 5 implements a genuine interactive debate where multiple agents (Agent A, Agent B) independently solve a question, inspect each other's full reasoning chains, challenge flawed assumptions, defend valid points, and revise their conclusions over multiple rounds.
 
-## Key Concepts & Mathematical Foundation
-1. **Self-Consistency Sampling (Wang et al., 2022)**:
-   - For an uncertain problem $q$, sample $N$ independent generation paths $G = \{g_1, g_2, \dots, g_N\}$ using sampling temperature $T > 0$ (default $0.7$).
-   - Extract candidate answers $A = \{a_1, a_2, \dots, a_N\}$.
-   - Normalize answers (casing, numeric formatting, whitespace).
-   - Select the consensus answer by marginalizing over paths:
-     $$a^* = \arg\max_{a} \sum_{i=1}^N \mathbb{I}(a_i = a)$$
-2. **Agreement Score**:
-   $$\text{Agreement} = \frac{\max_a \text{count}(a)}{N}$$
-   Measures confidence in the selected candidate answer (e.g. 3/3 = 1.0, 2/3 = 0.67, 4/5 = 0.80).
-3. **Telemetry & Compute Tracking**:
-   - `call_count`: $1 \text{ (initial evaluation)} + N \text{ (sampling calls)} = 1 + N$.
-   - Cumulative token usage: $\sum \text{tokens}$.
-   - Cumulative latency: $\sum \text{latency}$.
-   - Zero external API cost ($0.00) on local hardware.
+## Key Principles of Genuine Multi-Agent Debate
+1. **Parallel Independent Discovery (Round 1)**:
+   - Agent A and Agent B solve the question with zero knowledge of each other's existence to avoid groupthink and anchoring bias.
+2. **Mutual Cross-Examination (Round 2+)**:
+   - Agent A is shown Agent B's exact argument and answer.
+   - Agent B is shown Agent A's exact argument and answer.
+   - Each agent is prompted to:
+     - Identify specific logical gaps, arithmetic errors, or unfounded assumptions in the peer's argument.
+     - Counter-argue and defend its own stance if sound.
+     - Concede and revise if the peer exposed a legitimate mistake.
+3. **Multi-Round Convergence & Revision Tracking**:
+   - Each turn detects whether an agent maintained its stance or revised its answer (`revised: True/False`).
+   - Tracks whether consensus is reached across all agents at the end of the rounds.
+4. **Configurable Debate Hyperparameters**:
+   - `num_agents`: default 2 (supports 3).
+   - `num_rounds`: default 2 (supports 3+).
+   - `agent_temperature`: non-zero temperature (e.g. 0.7) for cognitive diversity.
+   - Dedicated persona configurations.
 
 ---
 
 ## Proposed Changes
 
-### 1. Self-Consistency Models
-#### [NEW] `src/reasoning/models.py`
-- `CandidateSolution`:
-  - `sample_id: int`
-  - `answer: str`
-  - `explanation: str`
+### 1. Debate Data Models
+#### [NEW] `src/reasoning/debate_models.py`
+- `AgentConfig`: `name`, `persona`, `model`, `temperature`.
+- `DebateTurn`:
+  - `round_number: int`
+  - `agent_name: str`
+  - `argument: str`
+  - `current_answer: str`
+  - `revised: bool`
   - `token_usage: TokenUsage`
   - `latency_seconds: float`
-- `SelfConsistencyResult`:
-  - `final_answer: str`
-  - `final_explanation: str`
-  - `agreement_score: float`
-  - `agreement_distribution: Dict[str, int]`
-  - `candidates: List[CandidateSolution]`
-  - `num_samples: int`
-  - `model: str`
-  - `provider: str`
-  - `token_usage: TokenUsage`
-  - `latency_seconds: float`
+- `DebateRound`:
+  - `round_number: int`
+  - `turns: List[DebateTurn]`
+- `DebateTranscript`:
+  - `question: str`
+  - `rounds: List[DebateRound]`
+  - `final_agent_answers: Dict[str, str]`
+  - `consensus_reached: bool`
+  - `total_calls: int` ($N_{\text{agents}} \times N_{\text{rounds}}$)
+  - `total_token_usage: TokenUsage`
+  - `total_latency_seconds: float`
   - `external_api_cost: float = 0.0`
+  - `metadata: Dict[str, Any]`
 
-### 2. Self-Consistency Reasoner
-#### [NEW] `src/reasoning/consistency.py`
-- `SelfConsistencyReasoner`:
-  - `sample_and_vote(question: str, num_samples: int = 3, temperature: float = 0.7) -> SelfConsistencyResult`
-  - `_normalize_answer(answer: str) -> str`: Normalizes punctuation, numerical representations (e.g. "100" vs "100.0"), and casing.
-  - Generates $N$ diverse solutions in parallel/sequence.
-  - Tallies votes and resolves ties systematically.
-  - Aggregates tokens, latency, and candidate solutions.
+### 2. Multi-Agent Debate Engine
+#### [NEW] `src/reasoning/debate.py`
+- `DebateAgent`:
+  - Represents an individual debater.
+  - Generates initial independent reasoning.
+  - Analyzes opponent arguments, challenges flaws, defends valid deductions, and outputs revised or defended answer.
+- `MultiAgentDebateEngine`:
+  - Orchestrates the rounds.
+  - Ensures clean peer transcript sharing.
+  - Aggregates the `DebateTranscript`.
 
-### 3. Adaptive Router Integration
-#### [MODIFY] `src/router/router.py`
-- Inject `SelfConsistencyReasoner` into `AdaptiveRouter`.
-- When decision is `UNCERTAIN`:
-  - Automatically executes `self_consistency_reasoner.sample_and_vote(question, num_samples)`.
-  - Sets `strategy = ReasoningStrategy.SELF_CONSISTENCY`.
-  - Aggregates call count: $1 + N$.
-  - Aggregates initial and sampling tokens and latency.
-  - Records candidate distribution and agreement score into response telemetry.
-
-### 4. Configuration Updates
+### 3. Configuration Updates
 #### [MODIFY] `config.json`
-- Add router parameters:
+- Add debate configuration:
   ```json
-  "router": {
-    "confidence_threshold_high": 0.80,
-    "confidence_threshold_low": 0.50,
-    "estimation_mode": "single_pass",
-    "consistency_samples": 3,
-    "sample_temperature": 0.7
+  "debate": {
+    "num_agents": 2,
+    "num_rounds": 2,
+    "agent_temperature": 0.7,
+    "agents": [
+      {
+        "name": "Agent_A",
+        "persona": "Analytical logician focused on rigorous first-principles derivation."
+      },
+      {
+        "name": "Agent_B",
+        "persona": "Critical empirical thinker focused on edge cases and counterexamples."
+      }
+    ]
   }
   ```
 
-### 5. CLI & Display
+### 4. CLI Execution
 #### [MODIFY] `src/main.py`
-- Display candidate solutions, agreement percentage, and sample breakdown when `SELF_CONSISTENCY` is executed.
+- Support `--mode debate` to run a direct standalone debate and print the complete multi-round debate transcript, agent rebuttals, and consensus status.
 
-### 6. Automated Testing
-#### [NEW] `tests/test_consistency.py`
+### 5. Automated Tests
+#### [NEW] `tests/test_debate.py`
 - Unit tests for:
-  - Majority voting with unanimous candidates (100% agreement).
-  - Majority voting with divided candidates (e.g. 2 vs 1 -> 66.7% agreement).
-  - Tie-breaking behavior.
-  - Answer normalization (e.g. whitespace, trailing periods, case insensitivity).
-  - Token accumulation and call counting.
-  - Router integration test for `UNCERTAIN` queries triggering self-consistency.
+  - Round 1 independent reasoning generation.
+  - Round 2 prompt construction containing opponent transcripts.
+  - Revision detection (`revised: True/False`).
+  - Consensus evaluation when agents agree vs disagree.
+  - Token aggregation and call counting ($N_{\text{agents}} \times N_{\text{rounds}}$).
 
-### 7. Documentation & Repository Sync
+### 6. Documentation & Git Sync
 #### [MODIFY] `implementation_plan.md`
-- Attach Phase 4 plan directly in repository root.
+- Attach Phase 5 plan directly in repository root.
 #### [MODIFY] `README.md`
-- Update with Phase 4 Self-Consistency architecture, consensus mechanism, configuration, and sample outputs.
-- Git commit and push to remote: `feat(phase-4): implement self-consistency reasoning and router integration`.
+- Add Phase 5 Multi-Agent Debate architecture, debate protocol, CLI instructions, and transcript format.
+- Git commit and push to remote: `feat(phase-5): implement multi-agent debate foundation and transcript tracking`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `.\venv\Scripts\python.exe -m pytest tests/ -v` to ensure all existing (20) and new unit tests pass (100% pass rate).
+- Run `.\venv\Scripts\python.exe -m pytest tests/ -v` to ensure all existing (26) and new unit tests pass (100% pass rate).
 
 ### Manual Verification
-1. **Easy Question (Direct Route)**:
-   - Run: `python -m src.main -q "What is 25 * 4?" --profile local_fast`
-   - Verify: `Strategy = DIRECT`, `Calls Made = 1`.
-2. **Uncertain Question (Self-Consistency Route)**:
-   - Run: `python -m src.main -q "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost in cents?" --profile local_fast`
-   - Verify: `Strategy = SELF_CONSISTENCY`, Candidate solutions generated, agreement score calculated, `Calls Made = 1 + N`, final consensus answer = `5 cents` (or 0.05).
+- Run a standalone debate via CLI:
+  `python -m src.main --question "Should self-driving cars prioritize passenger safety or pedestrian safety in unavoidable collisions?" --mode debate --profile local_fast`
+- Verify that Round 1 shows independent solutions from Agent A and Agent B.
+- Verify that Round 2 shows each agent referencing the other's points, challenging or defending arguments, and providing their current answer.
+- Verify total call count, token usage, latency, and $0.00 external cost.

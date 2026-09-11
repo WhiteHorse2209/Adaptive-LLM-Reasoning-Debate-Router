@@ -2,10 +2,23 @@
 from src.reasoning.direct import DirectReasoner
 from src.reasoning.consistency import SelfConsistencyReasoner
 from src.reasoning.models import CandidateSolution, SelfConsistencyResult
+from src.reasoning.debate_models import (
+    AgentConfig,
+    DebateTurn,
+    DebateRound,
+    DebateTranscript,
+)
+from src.reasoning.debate import DebateAgent, MultiAgentDebateEngine
 
 __all__ = [
     "DirectReasoner",
     "SelfConsistencyReasoner",
     "CandidateSolution",
     "SelfConsistencyResult",
+    "AgentConfig",
+    "DebateTurn",
+    "DebateRound",
+    "DebateTranscript",
+    "DebateAgent",
+    "MultiAgentDebateEngine",
 ]

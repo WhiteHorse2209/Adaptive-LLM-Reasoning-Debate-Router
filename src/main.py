@@ -4,20 +4,21 @@ import sys
 
 from src.config.config import load_config
 from src.provider.factory import get_provider
+from src.reasoning.debate import MultiAgentDebateEngine
 from src.reasoning.direct import DirectReasoner
 from src.router.router import AdaptiveRouter
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Adaptive LLM Reasoning & Debate Router - Dynamic Mode & Direct Routing (Phase 3)"
+        description="Adaptive LLM Reasoning & Debate Router - Multi-Agent Debate Engine (Phase 5)"
     )
     parser.add_argument(
         "--question",
         "-q",
         type=str,
         default="What is 25 * 4?",
-        help="The question to answer.",
+        help="The question to answer or debate.",
     )
     parser.add_argument(
         "--profile",
@@ -29,9 +30,16 @@ def main():
     parser.add_argument(
         "--mode",
         "-m",
-        choices=["adaptive", "direct"],
+        choices=["adaptive", "direct", "debate"],
         default="adaptive",
-        help="Execution mode: 'adaptive' (routes based on difficulty/confidence) or 'direct' (unconditional direct reasoning).",
+        help="Execution mode: 'adaptive' (dynamic routing), 'direct' (single LLM), or 'debate' (multi-agent debate).",
+    )
+    parser.add_argument(
+        "--rounds",
+        "-r",
+        type=int,
+        default=None,
+        help="Number of debate rounds if mode is 'debate' (defaults to config.json setting).",
     )
     parser.add_argument(
         "--config",
@@ -68,6 +76,7 @@ def main():
 
     profile_config = config["profiles"][profile_name]
     router_config = config.get("router", {})
+    debate_config = config.get("debate", {})
 
     # Instantiate Provider via Abstraction Factory
     try:
@@ -84,19 +93,30 @@ def main():
             file=sys.stderr,
         )
 
-    # Execute Reasoning Pipeline
+    # Execute Selected Pipeline
     try:
-        if args.mode == "adaptive":
+        if args.mode == "debate":
+            debate_engine = MultiAgentDebateEngine(provider, debate_config=debate_config)
+            transcript = debate_engine.run_debate(args.question, num_rounds=args.rounds)
+
+            if args.format == "json":
+                print(json.dumps(transcript.model_dump(), indent=2))
+            else:
+                _print_debate_transcript(transcript)
+            return
+
+        elif args.mode == "adaptive":
             router = AdaptiveRouter(provider, router_config=router_config)
             response = router.route_and_solve(args.question)
         else:
             reasoner = DirectReasoner(provider)
             response = reasoner.answer(args.question)
+
     except Exception as e:
-        print(f"Error during reasoning execution: {e}", file=sys.stderr)
+        print(f"Error during execution: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Render Output
+    # Render Routed or Direct Output
     if args.format == "json":
         print(json.dumps(response.model_dump(), indent=2))
     else:
@@ -121,6 +141,7 @@ def main():
                 print("  Candidate Samples:")
                 for idx, cand_ans in enumerate(response.metadata.get("candidate_answers", []), 1):
                     print(f"    Sample {idx}:       {cand_ans}")
+
         print(f"  Model:            {response.model} ({response.provider})")
         print(f"  Latency:          {response.latency_seconds}s")
         print(
@@ -129,6 +150,37 @@ def main():
         )
         print(f"  External Cost:    ${response.external_api_cost:.4f} (Zero API Cost - Local Hardware)")
         print("=" * 65 + "\n")
+
+
+def _print_debate_transcript(t):
+    print("\n" + "=" * 70)
+    print("GENUINE MULTI-AGENT DEBATE TRANSCRIPT")
+    print(f"Question: {t.question}")
+    print("=" * 70)
+
+    for r in t.rounds:
+        print(f"\n>>> ROUND {r.round_number} <<<")
+        for turn in r.turns:
+            revision_marker = " [REVISED ANSWER!]" if turn.revised else ""
+            print(f"\n[{turn.agent_name}]{revision_marker}:")
+            print(f"Argument:\n  {turn.argument}")
+            print(f"Proposed Answer: {turn.current_answer}")
+
+    print("\n" + "=" * 70)
+    print("DEBATE TELEMETRY & CONSENSUS:")
+    print(f"  Consensus Reached:   {'YES' if t.consensus_reached else 'NO'}")
+    if t.consensus_reached:
+        print(f"  Consensus Answer:    {t.consensus_answer}")
+    else:
+        print(f"  Divergent Answers:   {t.final_agent_answers}")
+    print(f"  Total Agent Calls:   {t.total_calls}")
+    print(f"  Total Latency:       {t.total_latency_seconds}s")
+    print(
+        f"  Total Tokens:        {t.total_token_usage.total_tokens} "
+        f"(prompt: {t.total_token_usage.prompt_tokens}, completion: {t.total_token_usage.completion_tokens})"
+    )
+    print(f"  External Cost:       ${t.external_api_cost:.4f} (Zero API Cost - Local Hardware)")
+    print("=" * 70 + "\n")
 
 
 if __name__ == "__main__":

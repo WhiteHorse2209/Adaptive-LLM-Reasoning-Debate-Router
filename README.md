@@ -26,8 +26,12 @@ The primary initial design focuses entirely on local-first LLM inference using *
           │               │               │
           ▼               ▼               ▼
        MODE 1          MODE 2          MODE 3
-       DIRECT     SELF-CONSISTENCY     DEBATE
-    (1 LLM Call)   (N Gen Samples)   (Multi-Round)
+       DIRECT     SELF-CONSISTENCY  MULTI-AGENT DEBATE
+    (1 LLM Call)   (N Gen Samples)   (Agent A ↔ Agent B)
+          │               │               │
+          │               │         Round 1 (Independent)
+          │               │         Round 2 (Cross-Exam)
+          │               │         Round 3 (Rebuttal)
           │               │               │
           └───────────────┼───────────────┘
                           │
@@ -65,7 +69,16 @@ The primary initial design focuses entirely on local-first LLM inference using *
 - **`src/reasoning/consistency.py`**: `SelfConsistencyReasoner` executing $N$ independent generation paths with non-zero temperature ($T=0.7$), canonicalizing candidate outputs, and selecting the consensus answer via majority voting:
   $$\text{Agreement} = \frac{\max_a \text{count}(a)}{N}$$
 - **`src/router/router.py`**: Seamlessly executes Self-Consistency for queries identified as `UNCERTAIN`, tracking all $1 + N$ calls, accumulated tokens, latency, and sample distributions.
-- **`src/main.py`**: CLI displays candidate vote distributions, agreement percentages, and individual sample solutions.
+
+### Phase 5: Multi-Agent Debate Foundation
+- **`src/reasoning/debate_models.py`**: Data schemas including `AgentConfig`, `DebateTurn`, `DebateRound`, and `DebateTranscript`.
+- **`src/reasoning/debate.py`**:
+  - `DebateAgent`: Individual debater driven by distinct personas, evaluating opponent arguments, and actively defending or revising its conclusions.
+  - `MultiAgentDebateEngine`: Genuine multi-round peer debate (NOT a sequential Solver -> Critic -> Verifier pipeline).
+    - **Round 1 (Parallel Independent Discovery)**: Agents solve the question in isolation to eliminate anchoring bias.
+    - **Round 2 (Mutual Cross-Examination)**: Agents review opponents' reasoning, challenge assumptions, defend valid deductions, or concede errors.
+    - **Round 3 (Optional Convergence)**: Deepens debate until consensus or principled divergence.
+- **`src/main.py`**: Standalone execution via `--mode debate` displaying round-by-round arguments, revisions, and consensus telemetry.
 
 ---
 
@@ -96,60 +109,68 @@ pip install -r requirements.txt
 python -m pytest tests/ -v
 ```
 
-### 4. Run Question Answering & Adaptive Routing
+### 4. Running the Modes
 
-**Easy Query (Automatically routed to DIRECT - 1 model call):**
+**Mode 1: Direct Answer (Easy Query):**
 ```bash
 python -m src.main --question "What is 25 * 4?" --profile local_fast
 ```
-Output:
-```
-=================================================================
-QUESTION:
-  What is 25 * 4?
 
-FINAL ANSWER:
-  100
-
-ROUTING & CONFIDENCE TELEMETRY:
-  Strategy:         DIRECT
-  Difficulty:       EASY
-  Confidence:       1.00 (HIGH)
-  Calls Made:       1
-  Model:            llama3.2:latest (ollama)
-  Tokens:           209 (prompt: 136, completion: 73)
-  External Cost:    $0.0000 (Zero API Cost - Local Hardware)
-=================================================================
-```
-
-**Uncertain Query (Automatically routed to SELF-CONSISTENCY - 1 + N calls):**
+**Mode 2: Self-Consistency (Uncertain Query):**
 ```bash
-python -m src.main --question "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost in cents?" --profile local_fast
+python -m src.main --question "Which number is larger: 9.11 or 9.9?" --profile local_fast
 ```
-Output:
+
+**Mode 3: Multi-Agent Debate (Complex / Contested Query):**
+```bash
+python -m src.main --question "Should autonomous vehicles prioritize passenger safety or pedestrian safety in an unavoidable accident?" --mode debate --rounds 2 --profile local_fast
 ```
-=================================================================
-ROUTING & CONFIDENCE TELEMETRY:
-  Strategy:         SELF_CONSISTENCY
-  Difficulty:       UNCERTAIN
-  Confidence:       0.65 (MEDIUM)
-  Calls Made:       4
-  Agreement Score:  66.7%
-  Vote Counts:      {'5 cents': 2, '10 cents': 1}
-  Candidate Samples:
-    Sample 1:       5 cents
-    Sample 2:       10 cents
-    Sample 3:       5 cents
-  Model:            llama3.2:latest (ollama)
-  External Cost:    $0.0000 (Zero API Cost - Local Hardware)
-=================================================================
+
+Example Debate Output:
+```
+======================================================================
+GENUINE MULTI-AGENT DEBATE TRANSCRIPT
+Question: Should autonomous vehicles prioritize passenger safety or pedestrian safety?
+======================================================================
+
+>>> ROUND 1 <<<
+[Agent_A]:
+Argument:
+  From a utilitarian perspective, minimizing total casualties is paramount...
+Proposed Answer: Prioritize pedestrian safety to minimize total harm.
+
+[Agent_B]:
+Argument:
+  From a contractual perspective, manufacturers owe primary duty to passengers...
+Proposed Answer: Prioritize passenger safety based on fiduciary duty.
+
+>>> ROUND 2 <<<
+[Agent_A]:
+Argument:
+  Agent B's argument overlooks the moral asymmetry between passengers...
+Proposed Answer: Prioritize pedestrian safety.
+
+[Agent_B] [REVISED ANSWER!]:
+Argument:
+  Agent A raises a valid point regarding the moral duty to unconsenting pedestrians...
+Proposed Answer: Prioritize pedestrian safety with minimial harm routing.
+
+======================================================================
+DEBATE TELEMETRY & CONSENSUS:
+  Consensus Reached:   YES
+  Consensus Answer:    Prioritize pedestrian safety
+  Total Agent Calls:   4
+  Total Latency:       62.4s
+  Total Tokens:        840
+  External Cost:       $0.0000 (Zero API Cost - Local Hardware)
+======================================================================
 ```
 
 ---
 
 ## Configuration (`config.json`)
 
-Model profiles, router thresholds, and self-consistency parameters are configured independently of application code:
+Model profiles, router thresholds, and debate hyperparameters are configured independently of application code:
 ```json
 {
   "active_profile": "local_fast",
@@ -177,6 +198,21 @@ Model profiles, router thresholds, and self-consistency parameters are configure
     "estimation_mode": "single_pass",
     "consistency_samples": 3,
     "sample_temperature": 0.7
+  },
+  "debate": {
+    "num_agents": 2,
+    "num_rounds": 2,
+    "agent_temperature": 0.7,
+    "agents": [
+      {
+        "name": "Agent_A",
+        "persona": "Analytical logician focused on rigorous first-principles derivation."
+      },
+      {
+        "name": "Agent_B",
+        "persona": "Critical empirical thinker focused on edge cases and counterexamples."
+      }
+    ]
   }
 }
 ```
