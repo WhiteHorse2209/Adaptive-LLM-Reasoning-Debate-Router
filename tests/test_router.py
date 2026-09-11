@@ -166,7 +166,10 @@ class TestAdaptiveRouter(unittest.TestCase):
         self.assertEqual(result.strategy, ReasoningStrategy.MULTI_AGENT_DEBATE)
         self.assertEqual(result.difficulty, DifficultyLevel.HARD)
         self.assertEqual(result.confidence.score, 0.30)
-        self.assertTrue(result.metadata["needs_further_reasoning"])
+        self.assertEqual(result.call_count, 6)  # 1 estimation + 4 debate + 1 judge
+        self.assertIsNotNone(result.transcript)
+        self.assertIsNotNone(result.verdict)
+        self.assertEqual(result.metadata["route_decision"], "MULTI_AGENT_DEBATE")
 
 
 if __name__ == "__main__":

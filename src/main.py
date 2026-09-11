@@ -106,7 +106,11 @@ def main():
             return
 
         elif args.mode == "adaptive":
-            router = AdaptiveRouter(provider, router_config=router_config)
+            router = AdaptiveRouter(
+                provider,
+                router_config=router_config,
+                debate_config=debate_config,
+            )
             response = router.route_and_solve(args.question)
         else:
             reasoner = DirectReasoner(provider)
@@ -120,10 +124,14 @@ def main():
     if args.format == "json":
         print(json.dumps(response.model_dump(), indent=2))
     else:
+        # If debate occurred in adaptive mode, show transcript first
+        if getattr(response, "transcript", None):
+            _print_debate_transcript(response.transcript)
+
         print("\n" + "=" * 65)
         print("QUESTION:")
         print(f"  {args.question}")
-        print("\nEXPLANATION:")
+        print("\nFINAL EXPLANATION / VERDICT:")
         print(f"  {response.explanation}")
         print("\nFINAL ANSWER:")
         print(f"  {response.answer}")
@@ -141,6 +149,14 @@ def main():
                 print("  Candidate Samples:")
                 for idx, cand_ans in enumerate(response.metadata.get("candidate_answers", []), 1):
                     print(f"    Sample {idx}:       {cand_ans}")
+
+            if getattr(response, "verdict", None):
+                print(f"  Winning Agent:    {response.verdict.winning_agent}")
+                print(f"  Judge Confidence: {response.verdict.confidence_in_verdict:.2f}")
+                if response.verdict.identified_flaws:
+                    print("  Identified Flaws:")
+                    for flaw in response.verdict.identified_flaws:
+                        print(f"    - {flaw}")
 
         print(f"  Model:            {response.model} ({response.provider})")
         print(f"  Latency:          {response.latency_seconds}s")

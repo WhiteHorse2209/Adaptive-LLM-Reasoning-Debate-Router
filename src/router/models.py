@@ -3,6 +3,9 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 from src.provider.models import TokenUsage
+from src.reasoning.debate_models import DebateTranscript
+from src.reasoning.judge_models import JudgeVerdict
+from src.reasoning.models import SelfConsistencyResult
 
 
 class DifficultyLevel(str, Enum):
@@ -38,4 +41,7 @@ class RoutedResponse(BaseModel):
     token_usage: TokenUsage
     latency_seconds: float
     external_api_cost: float = 0.0
+    transcript: Optional[DebateTranscript] = None
+    verdict: Optional[JudgeVerdict] = None
+    self_consistency_result: Optional[SelfConsistencyResult] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)

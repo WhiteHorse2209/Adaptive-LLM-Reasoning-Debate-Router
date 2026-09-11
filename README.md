@@ -80,6 +80,21 @@ The primary initial design focuses entirely on local-first LLM inference using *
     - **Round 3 (Optional Convergence)**: Deepens debate until consensus or principled divergence.
 - **`src/main.py`**: Standalone execution via `--mode debate` displaying round-by-round arguments, revisions, and consensus telemetry.
 
+### Phase 6: Debate Judge & Adjudication Pipeline
+- **`src/reasoning/judge_models.py`**: Pydantic schemas for `JudgeVerdict` (winning agent, verdict answer, confidence, evaluation summary, identified flaws) and `DebatePipelineResult`.
+- **`src/reasoning/judge.py`**:
+  - `DebateJudge`: Impartial arbiter reviewing complete debate transcripts. Rather than simple majority voting, it evaluates argument consistency, evidence strength, responsiveness to peer critiques, and identified flaws.
+  - `DebateWithJudgePipeline`: Unified coordinator orchestrating multi-round debate execution followed by authoritative judge adjudication.
+
+### Phase 7: Complete Adaptive Reasoning Engine
+- **`src/router/models.py`**: Extended `RoutedResponse` embedding optional `DebateTranscript`, `JudgeVerdict`, and `SelfConsistencyResult` along with unified token, call count, and latency metrics.
+- **`src/router/router.py`**: Dynamic three-tier dispatch engine:
+  - **`EASY`** ($\ge 0.80$ confidence) $\to$ **Mode 1: Direct Reasoning** ($1$ call).
+  - **`UNCERTAIN`** ($0.50 \le \text{conf} < 0.80$) $\to$ **Mode 2: Self-Consistency** ($1 + N$ calls with majority voting).
+  - **`HARD`** ($< 0.50$ confidence) $\to$ **Mode 3: Multi-Agent Debate + Judge** ($1 + N_{\text{agents}} \times N_{\text{rounds}} + 1$ calls).
+- **`src/main.py`**: Unified CLI with automatic adaptive routing (`--mode adaptive`), manual overrides (`--mode direct`, `--mode debate`), and comprehensive telemetry reporting.
+- **`tests/test_complete_pipeline.py`**: End-to-end integration test suite validating call count bounds, token accumulation, and routing decisions.
+
 ---
 
 ## Quickstart & Installation
@@ -164,6 +179,25 @@ DEBATE TELEMETRY & CONSENSUS:
   Total Tokens:        840
   External Cost:       $0.0000 (Zero API Cost - Local Hardware)
 ======================================================================
+
+>>> IMPARTIAL JUDGE ADJUDICATION <<<
+Winning Agent:         Agent_A
+Verdict Confidence:    0.95
+Adjudication Summary:  Agent A's reasoning remained robust against edge cases while Agent B conceded once externalized pedestrian harm was formalized.
+Identified Flaws:      Agent B's initial claim failed to account for involuntary third-party risk.
+Final Answer:          Prioritize pedestrian safety
+```
+
+**Adaptive Engine Execution (Autonomous Dynamic Routing):**
+```bash
+python -m src.main --question "What is the capital of France?" --mode adaptive --profile local_fast
+# -> Evaluated as EASY (Confidence 0.98) -> Executes DIRECT (1 call)
+
+python -m src.main --question "A bat and ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?" --mode adaptive --profile local_fast
+# -> Evaluated as UNCERTAIN (Confidence 0.65) -> Executes SELF-CONSISTENCY (4 calls, majority voting)
+
+python -m src.main --question "Resolve the ship of Theseus paradox considering physical continuity versus informational identity." --mode adaptive --profile local_fast
+# -> Evaluated as HARD (Confidence 0.35) -> Executes MULTI-AGENT DEBATE + JUDGE (6 calls)
 ```
 
 ---
