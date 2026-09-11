@@ -1,0 +1,22 @@
+{
+  "active_profile": "local_reasoning",
+  "profiles": {
+    "local_fast": {
+      "provider": "ollama",
+      "model": "llama3.2:1b",
+      "temperature": 0.1,
+      "max_tokens": 500
+    },
+    "local_reasoning": {
+      "provider": "ollama",
+      "model": "llama3.1:8b",
+      "temperature": 0.4,
+      "max_tokens": 2000
+    }
+  },
+  "router": {
+    "confidence_threshold_high": 0.9,
+    "confidence_threshold_low": 0.5,
+    "consistency_samples": 5
+  }
+}
